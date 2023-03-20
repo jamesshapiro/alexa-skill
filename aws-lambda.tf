@@ -9,7 +9,7 @@ data "aws_iam_policy" "aws-lambda-basic-exec-role" {
 }
 
 resource "aws_iam_role" "aws-lambda-role" {
-  name                        = "${var.aws_prefix}-lambdarole-${random_string.aws-suffix.result}"
+  name                        = "${var.app_name}-lambda-role"
   assume_role_policy          = <<EOF
 {
   "Version": "2012-10-17",
@@ -34,13 +34,18 @@ resource "aws_iam_role_policy_attachment" "aws-lambda-iam-attach-1" {
 
 resource "aws_lambda_function" "aws-lambda-function" {
   filename                    = "${path.module}/lambda.zip"
-  function_name               = "${var.aws_prefix}-lambdafunction-${random_string.aws-suffix.result}"
+  function_name               = "${var.app_name}-lambda-function"
   role                        = aws_iam_role.aws-lambda-role.arn
   handler                     = "lambda_function.lambda_handler"
-  runtime                     = "python3.6"
-  timeout                     = 30
+  runtime                     = "python3.9"
+  timeout                     = 120
   memory_size                 = 128
   source_code_hash            = data.archive_file.aws-lambda-archive.output_base64sha256
+  environment {
+    variables = {
+      OPENAI_API_KEY = var.openai_api_key
+    }
+  }
 }
 
 resource "aws_lambda_permission" "aws-lambda-allow-alexa" {
@@ -50,10 +55,3 @@ resource "aws_lambda_permission" "aws-lambda-allow-alexa" {
   principal                   = "alexa-appkit.amazon.com"
 }
 
-output "aws-output" {
-  value = <<EOM
-
-Lambda ARN: ${aws_lambda_function.aws-lambda-function.arn}
-Console URL: https://console.aws.amazon.com/lambda/home?region=${var.aws_region}#/functions/${var.aws_prefix}-lambdafunction-${random_string.aws-suffix.result}
-EOM
-}

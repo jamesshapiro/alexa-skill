@@ -5,6 +5,58 @@ import random
 import logging
 import json
 import prompts
+import openai
+import os
+#from langchain.llms import OpenAI
+
+api_key_string = os.environ['OPENAI_API_KEY']
+openai.api_key = api_key_string
+
+def set_open_params(
+    model="text-davinci-003",
+    temperature=0.7,
+    max_tokens=256,
+    top_p=1,
+    frequency_penalty=0,
+    presence_penalty=0,
+):
+    """ set openai parameters"""
+
+    openai_params = {}    
+
+    openai_params['model'] = model
+    openai_params['temperature'] = temperature
+    openai_params['max_tokens'] = max_tokens
+    openai_params['top_p'] = top_p
+    openai_params['frequency_penalty'] = frequency_penalty
+    openai_params['presence_penalty'] = presence_penalty
+    return openai_params
+
+def get_completion(params, prompt):
+    """ GET completion from openai api"""
+    response = openai.Completion.create(
+        engine = params['model'],
+        prompt = prompt,
+        temperature = params['temperature'],
+        max_tokens = params['max_tokens'],
+        top_p = params['top_p'],
+        frequency_penalty = params['frequency_penalty'],
+        presence_penalty = params['presence_penalty'],
+    )
+    return response
+
+def run_prompt(prompt, temperature=0.7):
+    """ run prompt """
+    params = set_open_params(temperature=temperature)
+    response = get_completion(params, prompt)
+    # print(f'\nPROMPT: {prompt}')
+    print(f'RESPONSE: {response.choices[0].text}')
+    return response.choices[0].text
+
+def get_response(prompt):
+    #prompt = """When I was 6 my sister was half my age. Now
+    #I’m 70, how old is my sister?"""
+    return run_prompt(prompt, 0.7)
 
 from ask_sdk_core.skill_builder import SkillBuilder
 from ask_sdk_core.dispatch_components import (
@@ -22,8 +74,8 @@ logger.setLevel(logging.DEBUG)
 
 
 # Built-in Intent Handlers
-class RollTwentyHandler(AbstractRequestHandler):
-    """Handler for Skill Launch and RollTwenty Intent."""
+class DefaultHandler(AbstractRequestHandler):
+    """Handler for Skill Launch and Default Intent."""
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
@@ -32,13 +84,16 @@ class RollTwentyHandler(AbstractRequestHandler):
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
-        logger.info("In RollTwentyHandler")
+        logger.info("In DefaultHandler")
 
         # get localization data
         data = handler_input.attributes_manager.request_attributes["_"]
 
-        roll_result = random.randrange(1, 20)
-        speech = data[prompts.GET_MESSAGE].format(roll_result)
+        #roll_result = random.randrange(1, 20000)
+        
+        response = get_response(prompt)
+        #speech = data[prompts.GET_MESSAGE].format(roll_result)
+        speech = response
 
         handler_input.response_builder.speak(speech).set_card(
             SimpleCard(data[prompts.SKILL_NAME], roll_result))
@@ -166,8 +221,7 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
         logger.info("In CatchAllExceptionHandler")
         logger.error(exception, exc_info=True)
 
-        handler_input.response_builder.speak(EXCEPTION_MESSAGE).ask(
-            HELP_REPROMPT)
+        handler_input.response_builder.speak(EXCEPTION_MESSAGE).ask(HELP_REPROMPT)
 
         return handler_input.response_builder.response
 
@@ -191,7 +245,7 @@ class ResponseLogger(AbstractResponseInterceptor):
 
 
 # Register intent handlers
-sb.add_request_handler(RollTwentyHandler())
+sb.add_request_handler(DefaultHandler())
 sb.add_request_handler(HelpIntentHandler())
 sb.add_request_handler(CancelOrStopIntentHandler())
 sb.add_request_handler(FallbackIntentHandler())
@@ -206,4 +260,62 @@ sb.add_global_request_interceptor(RequestLogger())
 sb.add_global_response_interceptor(ResponseLogger())
 
 # Handler name that is used on AWS lambda
-lambda_handler = sb.lambda_handler()
+#lambda_handler = sb.lambda_handler()
+
+
+import json
+
+def lambda_handler(event, context):
+    # Retrieve the intent name from the Alexa request
+    #intent_name = event['request']['intent']['name']
+    intent_name = "default"
+    event_json = json.dumps(event)
+    print(event_json)
+    if event['request']['type'] == 'LaunchRequest':
+        response = {
+            'version': '1.0',
+            'response': {
+                'outputSpeech': {
+                    'type': 'PlainText',
+                    'text': 'Hit me:'
+                },
+                'shouldEndSession': False
+            }
+        }
+
+    elif 'intent' in event['request'] and 'name' in event['request']['intent'] and event['request']['intent']['name'] == 'SearchIntent':
+        query_value = event['request']['intent']['slots']['Query']['value']
+        response_speech = get_response(query_value)
+        response = {
+            'version': '1.0',
+            'response': {
+                'outputSpeech': {
+                    'type': 'PlainText',
+                    'text': response_speech
+                },
+                'shouldEndSession': True
+            }
+        }
+    
+    # If the user has not yet provided their name, ask for it
+    # if intent_name == 'AskNameIntent':
+    #     # Respond with the ask-for-name prompt
+    elif 'intent' in event['request'] and 'name' in event['request']['intent'] and event['request']['intent']['name'] == 'AMAZON.FallbackIntent':
+        # Retrieve the name provided by the user
+        #name = event['request']['intent']['slots']['Name']['value']
+        
+        # Respond with the hello prompt, including the user's name
+        response = {
+            'version': '1.0',
+            'response': {
+                'outputSpeech': {
+                    'type': 'PlainText',
+                    'text': f'Welcome to Fallback intent!'
+                },
+                'shouldEndSession': True
+            }
+        }
+
+    
+    # If the user has provided their name, say hello
+    return response
